@@ -1646,7 +1646,47 @@ function rebuildAll(){
 let caminhaoData = [];
 function getVeiculosByTurno(t){return caminhaoData.filter(r=>(r.turno||'').toUpperCase()===t).length;}
 function salvarDadosCaminhoes(){try{localStorage.setItem('kpi_caminhoes_v1',JSON.stringify(caminhaoData));}catch(e){}}
-function carregarDadosCaminhoes(){try{const r=localStorage.getItem('kpi_caminhoes_v1');if(r)caminhaoData=JSON.parse(r);}catch(e){}}
+function carregarDadosCaminhoes(){
+  // Tenta carregar do localStorage primeiro
+  try{const r=localStorage.getItem('kpi_caminhoes_v1');if(r)caminhaoData=JSON.parse(r);}catch(e){}
+  // Busca o arquivo do GitHub automaticamente
+  carregarCaminhoesGitHub();
+}
+function carregarCaminhoesGitHub(){
+  const url='https://raw.githubusercontent.com/mellolk/KPI---OPERACIONAL-/main/recebimento.xlsx';
+  fetch(url,{cache:'no-cache'})
+    .then(r=>{if(!r.ok)throw new Error('Arquivo não encontrado no GitHub');return r.arrayBuffer();})
+    .then(buffer=>{
+      const wb=XLSX.read(buffer,{type:'array',cellDates:false});
+      let sheet=null;
+      const prio=['Sheet1','SHEET1','MOTOR','RECEBIMENTO','Planilha1'];
+      for(const n of prio){const found=wb.SheetNames.find(s=>s.toUpperCase()===n.toUpperCase());if(found){sheet=wb.Sheets[found];break;}}
+      if(!sheet)sheet=wb.Sheets[wb.SheetNames[0]];
+      if(!sheet)return;
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:false});
+      let h=-1;
+      for(let i=0;i<Math.min(rows.length,20);i++){const row=rows[i].map(c=>String(c||'').toUpperCase());if(row.some(c=>c==='TURNO')){h=i;break;}}
+      if(h<0)return;
+      const hdr=rows[h].map(c=>String(c||'').toUpperCase());
+      const iTurno=hdr.findIndex(c=>c==='TURNO');
+      caminhaoData=[];
+      for(let i=h+1;i<rows.length;i++){
+        const r=rows[i];if(!r||r.length===0)continue;
+        const turno=String(r[iTurno]||'').trim().toUpperCase();
+        if(!['A','B','C'].includes(turno))continue;
+        caminhaoData.push({turno});
+      }
+      salvarDadosCaminhoes();
+      renderCaminhoes();
+      const badge=document.getElementById('hh-cam-badge');
+      if(badge&&caminhaoData.length>0){
+        const totA=getVeiculosByTurno('A'),totB=getVeiculosByTurno('B'),totC=getVeiculosByTurno('C');
+        badge.textContent=`${fmtNum(caminhaoData.length)} veículos · A: ${totA} · B: ${totB} · C: ${totC} (GitHub)`;
+        badge.style.color='var(--ok)';
+      }
+    })
+    .catch(err=>console.log('recebimento.xlsx não encontrado no GitHub:',err.message));
+}
 function handleFileCaminhoes(file){
   if(!file)return;setStatus('importStatusCaminhoes','load','⏳ Lendo arquivo...');
   const reader=new FileReader();
